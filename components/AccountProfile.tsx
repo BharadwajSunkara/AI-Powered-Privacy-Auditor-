@@ -1,5 +1,5 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { UserAccount, HistoryItem } from '../types';
 import { jsPDF } from 'jspdf';
 
@@ -14,6 +14,70 @@ const AccountProfile: React.FC<AccountProfileProps> = ({ account, onUpdateAccoun
   const [isSyncing, setIsSyncing] = useState(false);
   const [tempAccount, setTempAccount] = useState(account);
   const [isGeneratingDoc, setIsGeneratingDoc] = useState(false);
+  const [isConnectingGoogle, setIsConnectingGoogle] = useState(false);
+
+  useEffect(() => {
+    const handleMessage = (event: MessageEvent) => {
+      if (event.data?.type === 'OAUTH_AUTH_SUCCESS') {
+        const userData = event.data.data;
+        onUpdateAccount({
+          ...account,
+          name: userData.name || account.name,
+          email: userData.email || account.email,
+          isDriveConnected: true,
+          lastDriveSync: new Date().toLocaleString(),
+          // Simulate fetching previous uses/history
+          history: [
+            ...account.history,
+            {
+              id: 'remote-1',
+              timestamp: new Date(Date.now() - 86400000).toLocaleString(),
+              policyPreview: 'Remote Audit: Legacy Policy Scan',
+              codePreview: 'Imported from Google Cloud Storage',
+              result: {
+                overallScore: 85,
+                status: 'Compliant',
+                violations: [],
+                recommendations: ['Routine maintenance check passed.']
+              },
+              metadata: {
+                duration: 1200,
+                engineSignature: 'Guardify Cloud v3.0',
+                environment: 'Staging'
+              }
+            }
+          ]
+        });
+        setIsConnectingGoogle(false);
+      }
+    };
+    window.addEventListener('message', handleMessage);
+    return () => window.removeEventListener('message', handleMessage);
+  }, [account, onUpdateAccount]);
+
+  const handleGoogleSignIn = async () => {
+    setIsConnectingGoogle(true);
+    try {
+      const response = await fetch('/api/auth/google/url');
+      if (!response.ok) throw new Error('Failed to get auth URL');
+      const { url } = await response.json();
+      
+      const width = 600;
+      const height = 700;
+      const left = window.screen.width / 2 - width / 2;
+      const top = window.screen.height / 2 - height / 2;
+      
+      window.open(
+        url,
+        'google_oauth',
+        `width=${width},height=${height},top=${top},left=${left}`
+      );
+    } catch (error) {
+      console.error('OAuth error:', error);
+      setIsConnectingGoogle(false);
+      alert('Failed to initiate Google Sign-In. Please check console for details.');
+    }
+  };
 
   const handleSave = () => {
     onUpdateAccount(tempAccount);
@@ -180,6 +244,21 @@ const AccountProfile: React.FC<AccountProfileProps> = ({ account, onUpdateAccoun
                   <div className="mt-2 px-3 py-1 bg-slate-100 rounded text-[10px] font-bold text-slate-600 border border-slate-200">
                     {account.role}
                   </div>
+                  
+                  {!account.isDriveConnected && (
+                    <button
+                      onClick={handleGoogleSignIn}
+                      disabled={isConnectingGoogle}
+                      className="mt-4 w-full py-2 bg-white border border-slate-300 rounded-lg text-xs font-bold text-slate-700 hover:bg-slate-50 transition-all flex items-center justify-center gap-2 shadow-sm"
+                    >
+                      {isConnectingGoogle ? (
+                        <i className="fa-solid fa-spinner fa-spin"></i>
+                      ) : (
+                        <i className="fa-brands fa-google text-slate-900"></i>
+                      )}
+                      Sign in with Google
+                    </button>
+                  )}
                 </>
               )}
             </div>
