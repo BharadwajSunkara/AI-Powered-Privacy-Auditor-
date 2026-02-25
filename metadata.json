@@ -1,0 +1,8 @@
+{
+  "name": "Guardify Auditor",
+  "description": "Enterprise-grade privacy compliance platform. Verify source code and policies against 20+ global standards using proprietary static analysis engines. Features real-time auditing, immutable logging, and comprehensive risk reporting.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ]
+}
