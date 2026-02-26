@@ -27,6 +27,13 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
         body: JSON.stringify({ email })
       });
       
+      const contentType = res.headers.get('content-type');
+      if (!contentType || !contentType.includes('application/json')) {
+        const text = await res.text();
+        console.error('Non-JSON response:', text);
+        throw new Error('Server error: Received non-JSON response. Please check server logs.');
+      }
+
       const data = await res.json();
       
       if (!res.ok) throw new Error(data.error || 'Failed to send OTP');
@@ -56,6 +63,13 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
         body: JSON.stringify({ email, otp })
       });
       
+      const contentType = res.headers.get('content-type');
+      if (!contentType || !contentType.includes('application/json')) {
+        const text = await res.text();
+        console.error('Non-JSON response:', text);
+        throw new Error('Server error: Received non-JSON response. Please check server logs.');
+      }
+
       const data = await res.json();
       
       if (!res.ok) throw new Error(data.error || 'Invalid OTP');
