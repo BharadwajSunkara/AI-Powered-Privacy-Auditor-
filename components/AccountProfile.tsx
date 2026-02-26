@@ -7,77 +7,14 @@ interface AccountProfileProps {
   account: UserAccount;
   onUpdateAccount: (account: UserAccount) => void;
   onViewHistory: (item: HistoryItem) => void;
+  onLogout: () => void;
 }
 
-const AccountProfile: React.FC<AccountProfileProps> = ({ account, onUpdateAccount, onViewHistory }) => {
+const AccountProfile: React.FC<AccountProfileProps> = ({ account, onUpdateAccount, onViewHistory, onLogout }) => {
   const [isEditing, setIsEditing] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
   const [tempAccount, setTempAccount] = useState(account);
   const [isGeneratingDoc, setIsGeneratingDoc] = useState(false);
-  const [isConnectingGoogle, setIsConnectingGoogle] = useState(false);
-
-  useEffect(() => {
-    const handleMessage = (event: MessageEvent) => {
-      if (event.data?.type === 'OAUTH_AUTH_SUCCESS') {
-        const userData = event.data.data;
-        onUpdateAccount({
-          ...account,
-          name: userData.name || account.name,
-          email: userData.email || account.email,
-          isDriveConnected: true,
-          lastDriveSync: new Date().toLocaleString(),
-          // Simulate fetching previous uses/history
-          history: [
-            ...account.history,
-            {
-              id: 'remote-1',
-              timestamp: new Date(Date.now() - 86400000).toLocaleString(),
-              policyPreview: 'Remote Audit: Legacy Policy Scan',
-              codePreview: 'Imported from Google Cloud Storage',
-              result: {
-                overallScore: 85,
-                status: 'Compliant',
-                violations: [],
-                recommendations: ['Routine maintenance check passed.']
-              },
-              metadata: {
-                duration: 1200,
-                engineSignature: 'Guardify Cloud v3.0',
-                environment: 'Staging'
-              }
-            }
-          ]
-        });
-        setIsConnectingGoogle(false);
-      }
-    };
-    window.addEventListener('message', handleMessage);
-    return () => window.removeEventListener('message', handleMessage);
-  }, [account, onUpdateAccount]);
-
-  const handleGoogleSignIn = async () => {
-    setIsConnectingGoogle(true);
-    try {
-      const response = await fetch('/api/auth/google/url');
-      if (!response.ok) throw new Error('Failed to get auth URL');
-      const { url } = await response.json();
-      
-      const width = 600;
-      const height = 700;
-      const left = window.screen.width / 2 - width / 2;
-      const top = window.screen.height / 2 - height / 2;
-      
-      window.open(
-        url,
-        'google_oauth',
-        `width=${width},height=${height},top=${top},left=${left}`
-      );
-    } catch (error) {
-      console.error('OAuth error:', error);
-      setIsConnectingGoogle(false);
-      alert('Failed to initiate Google Sign-In. Please check console for details.');
-    }
-  };
 
   const handleSave = () => {
     onUpdateAccount(tempAccount);
@@ -245,20 +182,13 @@ const AccountProfile: React.FC<AccountProfileProps> = ({ account, onUpdateAccoun
                     {account.role}
                   </div>
                   
-                  {!account.isDriveConnected && (
-                    <button
-                      onClick={handleGoogleSignIn}
-                      disabled={isConnectingGoogle}
-                      className="mt-4 w-full py-2 bg-white border border-slate-300 rounded-lg text-xs font-bold text-slate-700 hover:bg-slate-50 transition-all flex items-center justify-center gap-2 shadow-sm"
-                    >
-                      {isConnectingGoogle ? (
-                        <i className="fa-solid fa-spinner fa-spin"></i>
-                      ) : (
-                        <i className="fa-brands fa-google text-slate-900"></i>
-                      )}
-                      Sign in with Google
-                    </button>
-                  )}
+                  <button
+                    onClick={onLogout}
+                    className="mt-4 w-full py-2 bg-white border border-rose-200 rounded-lg text-xs font-bold text-rose-600 hover:bg-rose-50 transition-all flex items-center justify-center gap-2 shadow-sm"
+                  >
+                    <i className="fa-solid fa-arrow-right-from-bracket"></i>
+                    Sign Out
+                  </button>
                 </>
               )}
             </div>
@@ -338,6 +268,98 @@ const AccountProfile: React.FC<AccountProfileProps> = ({ account, onUpdateAccoun
                  Connect corporate Google Drive to enable automated compliance report archiving and audit trails.
                </p>
              )}
+          </div>
+
+          {/* Preferences Section */}
+          <div className="bg-white border border-slate-200 p-6 rounded-xl shadow-sm">
+             <div className="flex items-center gap-3 mb-6">
+               <div className="w-9 h-9 rounded-lg bg-slate-100 flex items-center justify-center text-slate-600 border border-slate-200">
+                 <i className="fa-solid fa-sliders"></i>
+               </div>
+               <div>
+                 <h4 className="text-sm font-bold text-slate-900">System Preferences</h4>
+                 <p className="text-[10px] text-slate-500 font-medium">Global Configuration</p>
+               </div>
+             </div>
+
+             <div className="space-y-4">
+               {/* Theme Toggle */}
+               <div className="flex items-center justify-between">
+                 <div>
+                   <p className="text-xs font-bold text-slate-700">Interface Theme</p>
+                   <p className="text-[10px] text-slate-400">Select workspace appearance</p>
+                 </div>
+                 <div className="flex bg-slate-100 p-1 rounded-lg border border-slate-200">
+                   {(['light', 'system', 'dark'] as const).map((theme) => (
+                     <button
+                       key={theme}
+                       onClick={() => {
+                         const currentPreferences = account.preferences || { theme: 'system', notifications: true, autoSyncDrive: false };
+                         onUpdateAccount({
+                           ...account,
+                           preferences: { ...currentPreferences, theme }
+                         });
+                       }}
+                       className={`px-3 py-1 rounded-md text-[10px] font-bold transition-all ${
+                         (account.preferences?.theme || 'system') === theme
+                           ? 'bg-white text-slate-900 shadow-sm'
+                           : 'text-slate-400 hover:text-slate-600'
+                       }`}
+                     >
+                       {theme.charAt(0).toUpperCase() + theme.slice(1)}
+                     </button>
+                   ))}
+                 </div>
+               </div>
+
+               {/* Notifications Toggle */}
+               <div className="flex items-center justify-between border-t border-slate-50 pt-4">
+                 <div>
+                   <p className="text-xs font-bold text-slate-700">Audit Notifications</p>
+                   <p className="text-[10px] text-slate-400">Email alerts for critical risks</p>
+                 </div>
+                 <div 
+                   onClick={() => {
+                     const currentPreferences = account.preferences || { theme: 'system', notifications: true, autoSyncDrive: false };
+                     onUpdateAccount({
+                       ...account,
+                       preferences: { ...currentPreferences, notifications: !currentPreferences.notifications }
+                     });
+                   }}
+                   className={`w-10 h-5 rounded-full transition-colors relative cursor-pointer border ${
+                     (account.preferences?.notifications ?? true) ? 'bg-blue-600 border-blue-600' : 'bg-slate-200 border-slate-300'
+                   }`}
+                 >
+                   <div className={`absolute top-0.5 w-3.5 h-3.5 bg-white rounded-full transition-all shadow-sm ${
+                     (account.preferences?.notifications ?? true) ? 'left-[22px]' : 'left-0.5'
+                   }`}></div>
+                 </div>
+               </div>
+
+               {/* Auto-Sync Toggle */}
+               <div className="flex items-center justify-between border-t border-slate-50 pt-4">
+                 <div>
+                   <p className="text-xs font-bold text-slate-700">Auto-Sync Drive</p>
+                   <p className="text-[10px] text-slate-400">Backup reports automatically</p>
+                 </div>
+                 <div 
+                   onClick={() => {
+                     const currentPreferences = account.preferences || { theme: 'system', notifications: true, autoSyncDrive: false };
+                     onUpdateAccount({
+                       ...account,
+                       preferences: { ...currentPreferences, autoSyncDrive: !currentPreferences.autoSyncDrive }
+                     });
+                   }}
+                   className={`w-10 h-5 rounded-full transition-colors relative cursor-pointer border ${
+                     (account.preferences?.autoSyncDrive ?? false) ? 'bg-blue-600 border-blue-600' : 'bg-slate-200 border-slate-300'
+                   }`}
+                 >
+                   <div className={`absolute top-0.5 w-3.5 h-3.5 bg-white rounded-full transition-all shadow-sm ${
+                     (account.preferences?.autoSyncDrive ?? false) ? 'left-[22px]' : 'left-0.5'
+                   }`}></div>
+                 </div>
+               </div>
+             </div>
           </div>
         </div>
 

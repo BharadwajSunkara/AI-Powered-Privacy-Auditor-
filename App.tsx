@@ -6,48 +6,53 @@ import ChatInterface from './components/ChatInterface';
 import ImageAnalyzer from './components/ImageAnalyzer';
 import GitIntegration from './components/GitIntegration';
 import AccountProfile from './components/AccountProfile';
+import Login from './components/Login';
 import { UserAccount, HistoryItem, AuditResult } from './types';
-
-const INITIAL_ACCOUNT: UserAccount = {
-  name: 'Auditor',
-  company: 'PrivacyGuard Solutions',
-  email: 'auditor@example.com',
-  role: 'Lead Compliance Officer',
-  history: [],
-  isDriveConnected: false
-};
 
 const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState('audit');
   const [selectedAuditResult, setSelectedAuditResult] = useState<AuditResult | null>(null);
   
-  const [account, setAccount] = useState<UserAccount>(() => {
+  const [account, setAccount] = useState<UserAccount | null>(() => {
     const saved = localStorage.getItem('privacyguard_account');
     if (saved) {
-      const parsed = JSON.parse(saved);
-      if (parsed.name === 'Senior Auditor') {
-        return { ...parsed, name: 'Auditor' };
-      }
-      return parsed;
+      return JSON.parse(saved);
     }
-    return INITIAL_ACCOUNT;
+    return null;
   });
 
   useEffect(() => {
-    localStorage.setItem('privacyguard_account', JSON.stringify(account));
+    if (account) {
+      localStorage.setItem('privacyguard_account', JSON.stringify(account));
+    } else {
+      localStorage.removeItem('privacyguard_account');
+    }
   }, [account]);
 
+  const handleLogin = (user: UserAccount) => {
+    setAccount(user);
+  };
+
+  const handleLogout = () => {
+    setAccount(null);
+  };
+
   const saveToHistory = (item: HistoryItem) => {
-    setAccount(prev => ({
+    if (!account) return;
+    setAccount(prev => prev ? ({
       ...prev,
       history: [item, ...prev.history]
-    }));
+    }) : null);
   };
 
   const handleViewHistoryItem = (item: HistoryItem) => {
     setSelectedAuditResult(item.result);
     setActiveTab('audit');
   };
+
+  if (!account) {
+    return <Login onLogin={handleLogin} />;
+  }
 
   const renderContent = () => {
     switch (activeTab) {
@@ -67,6 +72,7 @@ const App: React.FC = () => {
           account={account} 
           onUpdateAccount={setAccount} 
           onViewHistory={handleViewHistoryItem}
+          onLogout={handleLogout}
         />;
       default:
         return <AuditDashboard onSaveToHistory={saveToHistory} />;

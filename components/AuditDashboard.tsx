@@ -1,14 +1,16 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { AuditResult, HistoryItem } from '../types';
-import { analyzePrivacy } from '../services/geminiService';
+import { analyzePrivacy, generateComplianceBadge } from '../services/geminiService';
 import DataFlowDiagram from './DataFlowDiagram';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 
 const GLOBAL_LAWS = [
   "General Data Protection Regulation (GDPR) – EU",
   "UK GDPR – United Kingdom",
   "Data Protection Act 2018 – UK",
   "CCPA / CPRA – USA (California)",
+  "HIPAA – USA (Health Insurance Portability and Accountability Act)",
   "Digital Personal Data Protection Act (DPDP Act) – India",
   "PIPEDA – Canada",
   "LGPD – Brazil",
@@ -37,6 +39,24 @@ const AuditDashboard: React.FC<AuditDashboardProps> = ({ onSaveToHistory, initia
   const [selectedLaws, setSelectedLaws] = useState<string[]>(["General Data Protection Regulation (GDPR) – EU"]);
   const [lawSearch, setLawSearch] = useState('');
   const [showLawModal, setShowLawModal] = useState(false);
+  const [badgeImage, setBadgeImage] = useState<string | null>(null);
+  const [isGeneratingBadge, setIsGeneratingBadge] = useState(false);
+  const [analysisStep, setAnalysisStep] = useState<string>('');
+  const [analysisProgress, setAnalysisProgress] = useState(0);
+
+  const handleGenerateBadge = async () => {
+    if (!result) return;
+    setIsGeneratingBadge(true);
+    try {
+      const image = await generateComplianceBadge(result.overallScore, result.status);
+      setBadgeImage(image);
+    } catch (error) {
+      console.error("Failed to generate badge:", error);
+      alert("Failed to generate compliance badge.");
+    } finally {
+      setIsGeneratingBadge(false);
+    }
+  };
   
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -88,9 +108,39 @@ const AuditDashboard: React.FC<AuditDashboardProps> = ({ onSaveToHistory, initia
   const handleAudit = async () => {
     if (!policy || !code) return;
     setLoading(true);
+    setAnalysisProgress(0);
+    setAnalysisStep('Initializing Analysis Engine...');
+    
+    // Simulate progress steps
+    const steps = [
+      { p: 10, msg: 'Parsing Policy Documents...' },
+      { p: 25, msg: 'Scanning Source Code Architecture...' },
+      { p: 40, msg: 'Cross-Referencing Regulatory Frameworks...' },
+      { p: 60, msg: 'Detecting Dark Patterns & UX Risks...' },
+      { p: 75, msg: 'Calculating Financial Liability Models...' },
+      { p: 90, msg: 'Finalizing Compliance Report...' }
+    ];
+
+    let stepIndex = 0;
+    const progressInterval = setInterval(() => {
+      if (stepIndex < steps.length) {
+        setAnalysisProgress(steps[stepIndex].p);
+        setAnalysisStep(steps[stepIndex].msg);
+        stepIndex++;
+      }
+    }, 2000);
+
     const startTime = Date.now();
     try {
       const data = await analyzePrivacy(policy, code, selectedLaws);
+      
+      clearInterval(progressInterval);
+      setAnalysisProgress(100);
+      setAnalysisStep('Audit Complete');
+      
+      // Small delay to show 100%
+      await new Promise(r => setTimeout(r, 500));
+      
       setResult(data);
       onSaveToHistory({
         id: Date.now().toString(),
@@ -105,9 +155,12 @@ const AuditDashboard: React.FC<AuditDashboardProps> = ({ onSaveToHistory, initia
         }
       });
     } catch (error) {
+      clearInterval(progressInterval);
       alert('Analysis encountered an error. Please verify input integrity.');
     } finally {
       setLoading(false);
+      setAnalysisProgress(0);
+      setAnalysisStep('');
     }
   };
 
@@ -178,6 +231,27 @@ const AuditDashboard: React.FC<AuditDashboardProps> = ({ onSaveToHistory, initia
                     <span className="absolute text-3xl font-black text-slate-900">{result.overallScore}</span>
                  </div>
                  <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mt-2">Compliance Score</p>
+                 
+                 {/* Badge Generation */}
+                 <div className="mt-4 flex flex-col items-center">
+                    {badgeImage ? (
+                       <div className="relative group">
+                          <img src={badgeImage} alt="Compliance Badge" className="w-24 h-24 object-contain drop-shadow-lg" />
+                          <a href={badgeImage} download="compliance-badge.png" className="absolute inset-0 flex items-center justify-center bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity rounded-lg text-white text-xs font-bold">
+                             Download
+                          </a>
+                       </div>
+                    ) : (
+                       <button 
+                          onClick={handleGenerateBadge}
+                          disabled={isGeneratingBadge}
+                          className="text-[10px] font-bold text-blue-600 bg-blue-50 px-3 py-1.5 rounded-full hover:bg-blue-100 transition-colors flex items-center gap-1 disabled:opacity-50"
+                       >
+                          {isGeneratingBadge ? <i className="fa-solid fa-spinner fa-spin"></i> : <i className="fa-solid fa-certificate"></i>}
+                          Generate Badge
+                       </button>
+                    )}
+                 </div>
               </div>
 
               {/* Stats */}
@@ -196,9 +270,129 @@ const AuditDashboard: React.FC<AuditDashboardProps> = ({ onSaveToHistory, initia
                     </span>
                  </div>
               </div>
+
+              {/* Financial Risk Card */}
+              {result.financialRisk && (
+                <div className="bg-white border border-slate-200 p-6 rounded-xl shadow-sm relative overflow-hidden">
+                   <div className="absolute -top-4 -right-4 p-4 opacity-[0.03]">
+                      <i className="fa-solid fa-scale-unbalanced-flip text-9xl text-slate-900"></i>
+                   </div>
+                   <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Estimated Liability</h3>
+                   <div className="text-2xl font-black text-slate-900 tracking-tight">
+                      ${(result.financialRisk.estimatedFineLower / 1000).toFixed(0)}k - ${(result.financialRisk.estimatedFineUpper / 1000).toFixed(0)}k
+                   </div>
+                   <p className="text-[10px] text-slate-500 font-medium mt-1">Potential regulatory fines</p>
+                   <div className="mt-3 flex flex-wrap gap-1">
+                      {result.financialRisk.factors.slice(0, 2).map((factor, idx) => (
+                         <span key={idx} className="text-[9px] font-bold bg-rose-50 text-rose-700 px-1.5 py-0.5 rounded border border-rose-100">
+                            {factor}
+                         </span>
+                      ))}
+                   </div>
+                </div>
+              )}
            </div>
 
            <div className="md:col-span-3 space-y-6">
+              {/* Risk Breakdown Chart */}
+              {result.riskBreakdown && (
+                <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm">
+                   <div className="bg-slate-50 px-6 py-3 border-b border-slate-200 flex items-center gap-2">
+                      <i className="fa-solid fa-chart-simple text-slate-400 text-xs"></i>
+                      <h3 className="text-xs font-bold text-slate-700 uppercase tracking-wider">Risk Assessment by Category</h3>
+                   </div>
+                   <div className="p-6 h-64">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart data={result.riskBreakdown} layout="vertical" margin={{ top: 5, right: 30, left: 40, bottom: 5 }}>
+                          <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#e2e8f0" />
+                          <XAxis type="number" domain={[0, 100]} hide />
+                          <YAxis 
+                            dataKey="category" 
+                            type="category" 
+                            width={100} 
+                            tick={{ fontSize: 10, fill: '#64748b', fontWeight: 600 }} 
+                            axisLine={false}
+                            tickLine={false}
+                          />
+                          <Tooltip 
+                            cursor={{ fill: '#f8fafc' }}
+                            contentStyle={{ borderRadius: '8px', border: '1px solid #e2e8f0', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)' }}
+                            itemStyle={{ fontSize: '12px', fontWeight: 600, color: '#1e293b' }}
+                          />
+                          <Bar dataKey="score" radius={[0, 4, 4, 0]} barSize={20}>
+                            {result.riskBreakdown.map((entry, index) => (
+                              <Cell key={`cell-${index}`} fill={
+                                entry.score >= 80 ? '#10b981' : 
+                                entry.score >= 50 ? '#f59e0b' : 
+                                '#ef4444'
+                              } />
+                            ))}
+                          </Bar>
+                        </BarChart>
+                      </ResponsiveContainer>
+                   </div>
+                </div>
+              )}
+
+              {/* Dark Pattern Detection */}
+              {result.darkPatterns && result.darkPatterns.length > 0 && (
+                <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm">
+                   <div className="bg-slate-50 px-6 py-3 border-b border-slate-200 flex items-center gap-2">
+                      <i className="fa-solid fa-mask text-slate-400 text-xs"></i>
+                      <h3 className="text-xs font-bold text-slate-700 uppercase tracking-wider">Dark Pattern Detection</h3>
+                   </div>
+                   <div className="p-6 space-y-4">
+                      {result.darkPatterns.map((pattern) => (
+                         <div key={pattern.id} className="flex items-start gap-4 p-4 bg-slate-50 rounded-lg border border-slate-100">
+                            <div className={`p-2 rounded-lg ${
+                               pattern.severity === 'High' ? 'bg-rose-100 text-rose-600' : 
+                               pattern.severity === 'Medium' ? 'bg-amber-100 text-amber-600' : 
+                               'bg-blue-100 text-blue-600'
+                            }`}>
+                               <i className="fa-solid fa-eye-slash text-lg"></i>
+                            </div>
+                            <div>
+                               <div className="flex items-center gap-2 mb-1">
+                                  <h4 className="font-bold text-slate-900 text-sm">{pattern.patternType}</h4>
+                                  <span className="text-[10px] font-bold uppercase px-1.5 py-0.5 rounded bg-slate-200 text-slate-600">
+                                     {pattern.location}
+                                  </span>
+                               </div>
+                               <p className="text-xs text-slate-600 leading-relaxed">{pattern.description}</p>
+                            </div>
+                         </div>
+                      ))}
+                   </div>
+                </div>
+              )}
+
+              {/* Regulatory Intelligence */}
+              {result.regulatoryNews && result.regulatoryNews.length > 0 && (
+                <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm">
+                   <div className="bg-slate-50 px-6 py-3 border-b border-slate-200 flex items-center gap-2">
+                      <i className="fa-solid fa-gavel text-slate-400 text-xs"></i>
+                      <h3 className="text-xs font-bold text-slate-700 uppercase tracking-wider">Recent Precedents & Fines</h3>
+                   </div>
+                   <div className="divide-y divide-slate-100">
+                      {result.regulatoryNews.map((news, idx) => (
+                         <a key={idx} href={news.url} target="_blank" rel="noopener noreferrer" className="block p-4 hover:bg-slate-50 transition-colors group">
+                            <div className="flex justify-between items-start mb-1">
+                               <h4 className="text-sm font-bold text-slate-900 group-hover:text-blue-600 transition-colors line-clamp-1">{news.title}</h4>
+                               <span className="text-[10px] text-slate-400 whitespace-nowrap ml-2">{news.date}</span>
+                            </div>
+                            <p className="text-xs text-slate-500 mb-2 line-clamp-2">{news.relevance}</p>
+                            <div className="flex items-center gap-2">
+                               <span className="text-[10px] font-bold uppercase text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded">{news.source}</span>
+                               <span className="text-[10px] text-blue-500 font-medium opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1">
+                                  Read Source <i className="fa-solid fa-arrow-up-right-from-square text-[8px]"></i>
+                               </span>
+                            </div>
+                         </a>
+                      ))}
+                   </div>
+                </div>
+              )}
+
               {/* Executive Summary */}
               <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm">
                  <div className="bg-slate-50 px-6 py-3 border-b border-slate-200 flex items-center gap-2">
@@ -431,11 +625,22 @@ const AuditDashboard: React.FC<AuditDashboardProps> = ({ onSaveToHistory, initia
            </div>
 
            {/* System Ready Status */}
-           <div className="h-[200px] rounded-xl p-6 flex flex-col items-center justify-center border border-dashed border-slate-300 bg-slate-50">
+           <div className="h-[200px] rounded-xl p-6 flex flex-col items-center justify-center border border-dashed border-slate-300 bg-slate-50 relative overflow-hidden">
              {loading ? (
-               <div className="text-center space-y-3">
-                  <div className="w-10 h-10 border-4 border-slate-200 border-t-blue-600 rounded-full animate-spin mx-auto"></div>
-                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Processing Data</p>
+               <div className="text-center space-y-4 w-full max-w-[200px] z-10">
+                  <div className="w-12 h-12 border-4 border-slate-200 border-t-blue-600 rounded-full animate-spin mx-auto"></div>
+                  <div>
+                    <p className="text-[10px] font-black text-blue-600 uppercase tracking-widest animate-pulse mb-1">
+                      {analysisStep || 'Processing Data'}
+                    </p>
+                    <div className="w-full bg-slate-200 h-1.5 rounded-full overflow-hidden">
+                      <div 
+                        className="h-full bg-blue-600 transition-all duration-500 ease-out"
+                        style={{ width: `${analysisProgress}%` }}
+                      ></div>
+                    </div>
+                    <p className="text-[9px] font-mono text-slate-400 mt-1 text-right">{analysisProgress}%</p>
+                  </div>
                </div>
              ) : (
                <div className="text-center opacity-60">
@@ -444,6 +649,16 @@ const AuditDashboard: React.FC<AuditDashboardProps> = ({ onSaveToHistory, initia
                   </div>
                   <h3 className="text-xs font-bold text-slate-500 uppercase tracking-widest">System Ready</h3>
                   <p className="text-[10px] text-slate-400 mt-1">Awaiting data injection</p>
+               </div>
+             )}
+             
+             {/* Background Grid Animation for Loading */}
+             {loading && (
+               <div className="absolute inset-0 opacity-[0.03] pointer-events-none" 
+                    style={{ 
+                      backgroundImage: 'radial-gradient(#3b82f6 1px, transparent 1px)', 
+                      backgroundSize: '20px 20px' 
+                    }}>
                </div>
              )}
            </div>

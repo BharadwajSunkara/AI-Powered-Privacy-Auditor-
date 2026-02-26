@@ -22,12 +22,45 @@ export enum ComplianceStandard {
   BUSINESS_CONTINUITY = 'Business Continuity Policy'
 }
 
+export interface RegulatoryNews {
+  title: string;
+  url: string;
+  source: string;
+  date: string;
+  relevance: string; // e.g., "Related to GDPR Art 32 violation"
+}
+
 export interface AuditResult {
   overallScore: number;
   status: 'Compliant' | 'Partial' | 'Non-Compliant';
   violations: Violation[];
   recommendations: string[];
   dataFlow?: DataFlowGraph;
+  riskBreakdown?: RiskBreakdown[];
+  darkPatterns?: DarkPattern[];
+  financialRisk?: FinancialRisk;
+  regulatoryNews?: RegulatoryNews[];
+}
+
+export interface DarkPattern {
+  id: string;
+  patternType: 'Urgency' | 'Misdirection' | 'Social Proof' | 'Obstruction' | 'Sneaking' | 'Forced Action';
+  location: string; // e.g., "SignupModal.tsx" or "Checkout Flow"
+  description: string;
+  severity: 'High' | 'Medium' | 'Low';
+}
+
+export interface FinancialRisk {
+  estimatedFineLower: number;
+  estimatedFineUpper: number;
+  currency: string;
+  factors: string[]; // e.g., "GDPR Tier 1", "CCPA per record"
+}
+
+export interface RiskBreakdown {
+  category: string;
+  score: number;
+  riskLevel: 'Critical' | 'High' | 'Medium' | 'Low';
 }
 
 export interface Violation {

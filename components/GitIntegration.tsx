@@ -97,15 +97,24 @@ const GitIntegration: React.FC = () => {
   const [newRepoUrl, setNewRepoUrl] = useState('');
   const [isSimulating, setIsSimulating] = useState(false);
   const [expandedScanId, setExpandedScanId] = useState<string | null>(null);
+  const [isAutoScanning, setIsAutoScanning] = useState(false);
 
   const executeScan = useCallback(async (customDiff?: string) => {
-    const mockDiff = customDiff || `// Simulated code context\n+ console.log('Audit Test:', user.ssn);\n- console.log('Standard Log');\n+ const userEmail = user.email;\n+ analytics.push({ type: 'Login', data: { email: userEmail } });`;
+    const mockDiffs = [
+      `// Simulated code context\n+ console.log('Audit Test:', user.ssn);\n- console.log('Standard Log');\n+ const userEmail = user.email;\n+ analytics.push({ type: 'Login', data: { email: userEmail } });`,
+      `// Database Config Change\n- const dbPassword = process.env.DB_PASS;\n+ const dbPassword = "superSecretPassword123"; // TODO: Remove before prod\n  connectToDb(dbUrl, dbPassword);`,
+      `// API Key Exposure\n  const client = new ThirdPartyClient({\n+   apiKey: "sk_live_51Mz...",\n    timeout: 5000\n  });`,
+      `// Safe Refactor\n- function oldAuth() { ... }\n+ function newAuth() { \n+   // Implements OAuth2 standard\n+   return oauth.authorize();\n+ }`
+    ];
+    
+    const mockDiff = customDiff || mockDiffs[Math.floor(Math.random() * mockDiffs.length)];
+
     try {
       const result = await scanCommit(mockDiff);
       const newScan: CommitScan = {
         id: 'scan-' + Date.now(),
         commitHash: Math.random().toString(16).substring(2, 9),
-        author: 'ci.bot',
+        author: ['ci.bot', 'dev.dave', 'qa.alice', 'sec.ops'][Math.floor(Math.random() * 4)],
         timestamp: new Date().toLocaleString([], { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' }),
         status: (result.status as any) || 'Warning',
         issuesCount: result.issuesCount || 0,
@@ -129,16 +138,19 @@ const GitIntegration: React.FC = () => {
   }, []);
 
   useEffect(() => {
+    if (!isAutoScanning) return;
+
     const interval = setInterval(() => {
       const activeRepos = repos.filter(r => r.isActive);
       if (activeRepos.length > 0 && !isSimulating) {
-        if (Math.random() > 0.8) {
+        // Higher frequency for demo purposes: 40% chance every 10s
+        if (Math.random() > 0.6) {
           executeScan();
         }
       }
-    }, 60000);
+    }, 10000);
     return () => clearInterval(interval);
-  }, [repos, isSimulating, executeScan]);
+  }, [repos, isSimulating, executeScan, isAutoScanning]);
 
   const handleAddRepo = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -181,10 +193,17 @@ const GitIntegration: React.FC = () => {
       <header className="flex flex-col md:flex-row md:items-end justify-between gap-6">
         <div>
           <div className="flex items-center gap-2 mb-2">
-             <div className="flex items-center gap-1.5 px-2 py-1 bg-emerald-50 border border-emerald-100 rounded text-[10px] font-bold text-emerald-700 uppercase tracking-widest">
-                <i className="fa-solid fa-circle text-[6px] animate-pulse"></i>
-                Active Monitoring
-             </div>
+             <button 
+                onClick={() => setIsAutoScanning(!isAutoScanning)}
+                className={`flex items-center gap-2 px-3 py-1.5 border rounded-full text-[10px] font-bold uppercase tracking-widest transition-all ${
+                  isAutoScanning 
+                    ? 'bg-emerald-50 border-emerald-200 text-emerald-700 shadow-sm' 
+                    : 'bg-slate-50 border-slate-200 text-slate-400 hover:bg-slate-100'
+                }`}
+             >
+                <span className={`flex h-2 w-2 rounded-full ${isAutoScanning ? 'bg-emerald-500 animate-pulse' : 'bg-slate-300'}`}></span>
+                {isAutoScanning ? 'Auto-Scan Active' : 'Enable Auto-Scan'}
+             </button>
           </div>
           <h2 className="text-3xl font-bold text-slate-900 tracking-tight">Git Integration</h2>
           <p className="text-slate-500 mt-1 text-sm font-medium">Automated CI/CD security auditing for your enterprise repositories.</p>

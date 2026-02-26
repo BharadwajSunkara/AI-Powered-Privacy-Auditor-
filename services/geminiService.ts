@@ -37,10 +37,11 @@ export const analyzePrivacy = async (
   // Robust system instruction to activate the model's legal and technical knowledge base
   const systemInstruction = `
     You are the Guardify Enterprise Compliance Engine, a specialized system with comprehensive knowledge of global privacy regulations and secure coding standards.
-
+    
     YOUR KNOWLEDGE BASE INCLUDES (BUT IS NOT LIMITED TO):
     - GDPR (EU): Articles 5, 6, 25 (Privacy by Design), 32 (Security of Processing).
     - CCPA/CPRA (USA): Consumer rights, "Do Not Sell/Share", Sensitive Personal Information (SPI).
+    - HIPAA (USA): PHI protection, Security Rule, Privacy Rule.
     - ISO 27001 / SOC 2: Information security controls and best practices.
     - OWASP Top 10: Web application security risks.
     - NIST Privacy Framework: Identification and management of privacy risk.
@@ -51,7 +52,9 @@ export const analyzePrivacy = async (
     STRICT RULES:
     1. CITATION REQUIRED: When identifying a violation, you MUST cite the specific Article, Section, or Recital of the relevant law (e.g., "Violates GDPR Art. 32(1)(a) - Encryption").
     2. TECHNICAL VALIDATION: Verify if the code implements what the policy promises. If the policy says "We encrypt data" but the code shows plain text storage, flag it as a CRITICAL violation.
-    3. GAP ANALYSIS: If the code processes sensitive data (PII, Credit Cards) but no policy covers it, flag it.
+    3. GAP ANALYSIS: If the code processes sensitive data (PII, Credit Cards, PHI) but no policy covers it, flag it.
+    4. DARK PATTERN DETECTION: Identify UI/UX patterns designed to manipulate users (e.g., "Confirmshaming", "Forced Continuity", "Hidden Costs").
+    5. FINANCIAL RISK: Estimate potential fines based on the severity of violations (e.g., GDPR 4% turnover, CCPA $2,500 per violation). Be conservative but realistic.
   `;
 
   const prompt = `
@@ -73,6 +76,9 @@ export const analyzePrivacy = async (
     3. List of Violations (with specific legal citations and severity).
     4. Remediation Recommendations.
     5. Data Flow Graph: Identify nodes (User, Collection, Storage, Third-Party) and edges (data movement) to visualize privacy risks.
+    6. Risk Breakdown: Provide a score (0-100, where 100 is safest) and risk level for key categories: "Data Security", "User Rights", "Transparency", "Data Minimization", "Third-Party Sharing".
+    7. Dark Patterns: Identify manipulative UI/UX patterns in the code (e.g., confusing toggles, hidden unsubscription).
+    8. Financial Risk: Estimate potential fines (lower and upper bounds in USD) based on the violations found.
   `;
 
   const response = await ai.models.generateContent({
@@ -135,14 +141,94 @@ export const analyzePrivacy = async (
               summary: { type: Type.STRING }
             },
             required: ["nodes", "edges", "summary"]
+          },
+          riskBreakdown: {
+            type: Type.ARRAY,
+            items: {
+              type: Type.OBJECT,
+              properties: {
+                category: { type: Type.STRING },
+                score: { type: Type.NUMBER },
+                riskLevel: { type: Type.STRING, description: "Critical, High, Medium, Low" }
+              },
+              required: ["category", "score", "riskLevel"]
+            }
+          },
+          darkPatterns: {
+            type: Type.ARRAY,
+            items: {
+              type: Type.OBJECT,
+              properties: {
+                id: { type: Type.STRING },
+                patternType: { type: Type.STRING, description: "Urgency, Misdirection, Social Proof, Obstruction, Sneaking, Forced Action" },
+                location: { type: Type.STRING },
+                description: { type: Type.STRING },
+                severity: { type: Type.STRING, description: "High, Medium, Low" }
+              },
+              required: ["id", "patternType", "location", "description", "severity"]
+            }
+          },
+          financialRisk: {
+            type: Type.OBJECT,
+            properties: {
+              estimatedFineLower: { type: Type.NUMBER },
+              estimatedFineUpper: { type: Type.NUMBER },
+              currency: { type: Type.STRING },
+              factors: { type: Type.ARRAY, items: { type: Type.STRING } }
+            },
+            required: ["estimatedFineLower", "estimatedFineUpper", "currency", "factors"]
           }
         },
-        required: ["overallScore", "status", "violations", "recommendations", "dataFlow"]
+        required: ["overallScore", "status", "violations", "recommendations", "dataFlow", "riskBreakdown", "darkPatterns", "financialRisk"]
       }
     }
   });
 
-  return JSON.parse(response.text || "{}");
+  const result: AuditResult = JSON.parse(response.text || "{}");
+
+  // Step 2: Regulatory Intelligence (Search Grounding)
+  // We only run this if there are violations to find precedents for
+  if (result.violations && result.violations.length > 0) {
+    try {
+      const violationKeywords = result.violations.slice(0, 3).map(v => `${v.standard} ${v.clause}`).join(' OR ');
+      const newsPrompt = `
+        Find recent regulatory fines, court rulings, or enforcement actions related to: ${violationKeywords}.
+        Focus on GDPR, CCPA, and major privacy laws from the last 2 years.
+        Return a JSON array of 3 relevant news items.
+      `;
+
+      const newsResponse = await ai.models.generateContent({
+        model: 'gemini-3-flash-preview',
+        contents: newsPrompt,
+        config: {
+          tools: [{ googleSearch: {} }],
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: Type.ARRAY,
+            items: {
+              type: Type.OBJECT,
+              properties: {
+                title: { type: Type.STRING },
+                url: { type: Type.STRING },
+                source: { type: Type.STRING },
+                date: { type: Type.STRING },
+                relevance: { type: Type.STRING }
+              },
+              required: ["title", "url", "source", "date", "relevance"]
+            }
+          }
+        }
+      });
+
+      const newsItems = JSON.parse(newsResponse.text || "[]");
+      result.regulatoryNews = newsItems;
+    } catch (error) {
+      console.error("Failed to fetch regulatory news:", error);
+      // Non-blocking error, just return result without news
+    }
+  }
+
+  return result;
 };
 
 export const scanCommit = async (diff: string): Promise<Partial<CommitScan>> => {
@@ -244,6 +330,43 @@ export const analyzeImage = async (base64: string, mimeType: string) => {
     }
   });
   return response.text;
+};
+
+export const generateComplianceBadge = async (score: number, status: string) => {
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  
+  const prompt = `
+    Design a professional, minimalist cybersecurity compliance badge.
+    
+    DETAILS:
+    - Shape: Hexagonal or Shield.
+    - Text: "Guardify Audit: ${status.toUpperCase()}".
+    - Score: "${score}/100" prominently displayed.
+    - Color Scheme: ${score > 80 ? 'Emerald Green and White' : score > 50 ? 'Amber and White' : 'Rose Red and White'}.
+    - Style: Flat vector, modern, clean lines, white background.
+    - No realistic photo elements, only graphic design.
+  `;
+
+  const response = await ai.models.generateContent({
+    model: 'gemini-2.5-flash-image',
+    contents: {
+      parts: [{ text: prompt }]
+    }
+  });
+
+  // Extract base64 image from response
+  // Note: The response format for image generation models might differ slightly or require finding the image part.
+  // For gemini-2.5-flash-image, it returns inlineData in the candidate.
+  
+  const candidates = response.candidates;
+  if (candidates && candidates.length > 0) {
+     for (const part of candidates[0].content.parts) {
+        if (part.inlineData) {
+           return `data:${part.inlineData.mimeType};base64,${part.inlineData.data}`;
+        }
+     }
+  }
+  return null;
 };
 
 export const textToSpeech = async (text: string) => {

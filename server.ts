@@ -1,8 +1,8 @@
 import express from 'express';
 import { createServer as createViteServer } from 'vite';
-import { OAuth2Client } from 'google-auth-library';
 import cors from 'cors';
 import dotenv from 'dotenv';
+import crypto from 'crypto';
 
 dotenv.config();
 
@@ -12,94 +12,72 @@ const PORT = 3000;
 app.use(cors());
 app.use(express.json());
 
-// OAuth Setup
-const CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
-const CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
-const REDIRECT_URI_PATH = '/auth/callback';
+// In-memory OTP store (for demo purposes)
+// In production, use Redis or a database
+const otpStore = new Map<string, { otp: string; expires: number }>();
 
-// Helper to get full redirect URI based on request
-const getRedirectUri = (req: express.Request) => {
-  const protocol = req.headers['x-forwarded-proto'] || req.protocol;
-  const host = req.headers['x-forwarded-host'] || req.get('host');
-  return `${protocol}://${host}${REDIRECT_URI_PATH}`;
-};
-
-// 1. Get Auth URL
-app.get('/api/auth/google/url', (req, res) => {
-  if (!CLIENT_ID || !CLIENT_SECRET) {
-    return res.status(500).json({ error: 'Google OAuth credentials not configured' });
+// 1. Request OTP
+app.post('/api/auth/otp/request', (req, res) => {
+  const { email } = req.body;
+  
+  if (!email || typeof email !== 'string') {
+    return res.status(400).json({ error: 'Valid email is required' });
   }
 
-  const redirectUri = getRedirectUri(req);
-  const oAuth2Client = new OAuth2Client(CLIENT_ID, CLIENT_SECRET, redirectUri);
+  // Generate 6-digit OTP
+  const otp = crypto.randomInt(100000, 999999).toString();
+  const expires = Date.now() + 5 * 60 * 1000; // 5 minutes
 
-  const authorizeUrl = oAuth2Client.generateAuthUrl({
-    access_type: 'offline',
-    scope: [
-      'https://www.googleapis.com/auth/userinfo.profile',
-      'https://www.googleapis.com/auth/userinfo.email'
-    ],
-    prompt: 'consent'
+  otpStore.set(email, { otp, expires });
+
+  // Simulate sending email
+  console.log(`[AUTH] OTP for ${email}: ${otp}`);
+
+  // In a real app, you would integrate SendGrid/AWS SES here
+  // For this demo, we return the OTP in the response so the user can login
+  res.json({ 
+    success: true, 
+    message: 'OTP sent to email',
+    debug_otp: otp // Exposed for demo convenience
   });
-
-  res.json({ url: authorizeUrl });
 });
 
-// 2. Callback Handler
-app.get(['/auth/callback', '/auth/callback/'], async (req, res) => {
-  const { code } = req.query;
+// 2. Verify OTP
+app.post('/api/auth/otp/verify', (req, res) => {
+  const { email, otp } = req.body;
 
-  if (!code || typeof code !== 'string') {
-    return res.status(400).send('Missing authorization code');
+  if (!email || !otp) {
+    return res.status(400).json({ error: 'Email and OTP are required' });
   }
 
-  try {
-    const redirectUri = getRedirectUri(req);
-    const oAuth2Client = new OAuth2Client(CLIENT_ID, CLIENT_SECRET, redirectUri);
-    
-    const { tokens } = await oAuth2Client.getToken(code);
-    oAuth2Client.setCredentials(tokens);
+  const record = otpStore.get(email);
 
-    // Get user info
-    const ticket = await oAuth2Client.verifyIdToken({
-      idToken: tokens.id_token!,
-      audience: CLIENT_ID,
-    });
-    const payload = ticket.getPayload();
+  if (!record) {
+    return res.status(400).json({ error: 'No OTP request found for this email' });
+  }
 
-    if (!payload) {
-      throw new Error('Invalid token payload');
+  if (Date.now() > record.expires) {
+    otpStore.delete(email);
+    return res.status(400).json({ error: 'OTP has expired' });
+  }
+
+  if (record.otp !== otp) {
+    return res.status(400).json({ error: 'Invalid OTP' });
+  }
+
+  // Success - Clear OTP
+  otpStore.delete(email);
+
+  // Return user data
+  res.json({
+    success: true,
+    user: {
+      name: email.split('@')[0], // Simple name derivation
+      email: email,
+      role: 'Auditor',
+      company: 'Guardify User'
     }
-
-    // Prepare user data to send back to opener
-    const userData = {
-      name: payload.name,
-      email: payload.email,
-      picture: payload.picture,
-      provider: 'google'
-    };
-
-    // Send success message to parent window and close popup
-    res.send(`
-      <html>
-        <body>
-          <script>
-            if (window.opener) {
-              window.opener.postMessage({ type: 'OAUTH_AUTH_SUCCESS', data: ${JSON.stringify(userData)} }, '*');
-              window.close();
-            } else {
-              window.location.href = '/';
-            }
-          </script>
-          <p>Authentication successful. You can close this window.</p>
-        </body>
-      </html>
-    `);
-
-  } catch (error) {
-    console.error('OAuth error:', error);
-    res.status(500).send('Authentication failed');
-  }
+  });
 });
 
 // Vite middleware setup
