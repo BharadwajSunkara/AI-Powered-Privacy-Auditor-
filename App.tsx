@@ -1,5 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
+import { SpeedInsights } from '@vercel/speed-insights/react';
 import Layout from './components/Layout';
 import AuditDashboard from './components/AuditDashboard';
 import ChatInterface from './components/ChatInterface';
@@ -91,6 +92,7 @@ const App: React.FC = () => {
       <div className="animate-in fade-in duration-700">
         {renderContent()}
       </div>
+      <SpeedInsights />
     </Layout>
   );
 };
